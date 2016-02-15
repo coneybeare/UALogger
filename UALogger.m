@@ -7,8 +7,6 @@
 
 #import "UALogger.h"
 
-#import <asl.h>
-
 
 // We use static class vars because UALogger only has class methods
 static BOOL				UA__shouldLogInProduction	= NO;
@@ -20,6 +18,7 @@ static NSString			*UA__verbosityFormatFull	= nil;
 static NSString			*UA__bundleName				= nil;
 static NSString			*UA__userDefaultsKey		= nil;
 static UALoggerSeverity	UA__minimumSeverity			= UALoggerSeverityUnset;
+static NSInteger		UA__maxLogsRetained			= 30;
 
 
 @implementation UALogger
@@ -193,21 +192,35 @@ static UALoggerSeverity	UA__minimumSeverity			= UALoggerSeverityUnset;
 	 [args count] >= 9 ? [args objectAtIndex:8] : nil
 	 ];
 }
-	
+
 + (void)log:(NSString *)format, ... {
 	
 	@try {
 		if ([UALogger loggingEnabled]) {
             if (format != nil) {
+                
                 va_list args;
                 va_start(args, format);
-                NSLogv(format, args);
+                NSString *logStatement = [[NSString alloc] initWithFormat:format arguments:args];
                 va_end(args);
+                
+                // pass through to NSLog
+                NSLog(@"%@", logStatement);
+                
+                // add to front of logArray (with date) so it is in reverse chronological order
+                NSMutableArray *logArray = [self logArray];
+                NSString *formattedDate = [NSDateFormatter localizedStringFromDate:[NSDate date] dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterMediumStyle];
+                NSString *retainedLogStatement = [NSString stringWithFormat:@"[%@] %@", formattedDate, logStatement];
+                [logArray insertObject:retainedLogStatement atIndex:0];
+                
+                // pop excess logs
+                if ([logArray count] > UA__maxLogsRetained) {
+                    logArray = [[logArray subarrayWithRange:NSMakeRange(0, UA__maxLogsRetained)] mutableCopy];
+                }
+                
             }
         }
-    } @catch (...) {
-        NSLogv(@"Caught an exception in UALogger", nil);
-    }
+    } @catch (...) {}
 	
 }
 	
@@ -240,85 +253,43 @@ static UALoggerSeverity	UA__minimumSeverity			= UALoggerSeverityUnset;
 	
 	return UA__userDefaultsKey;
 }
-	
-+ (void)setUserDefaultsKey:(NSString *)userDefaultsKey {
-	UA__userDefaultsKey = userDefaultsKey;
-}
-	
-	
-#pragma mark - Application Log Collection
-	
-+ (NSString *)bundleName {
-	if (!UA__bundleName)
-	UA__bundleName = (NSString *)[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"];
-	
-	return UA__bundleName;
-}
-	
-+ (void)setBundleName:(NSString *)bundleName {
-	UA__bundleName = bundleName;
-}
-	
-	
-	
-+ (NSArray *)getConsoleLogEntriesForBundleName:(NSString *)bundleName {
-	NSMutableArray *logs = [NSMutableArray array];
-	
-	aslmsg q, m;
-	int i;
-	const char *key, *val;
-	
-	NSString *queryTerm = bundleName;
-	
-	q = asl_new(ASL_TYPE_QUERY);
-	asl_set_query(q, ASL_KEY_SENDER, [queryTerm UTF8String], ASL_QUERY_OP_EQUAL);
-	
-	aslresponse r = asl_search(NULL, q);
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-	while (NULL != (m = (asl_next != NULL) ? asl_next(r) : aslresponse_next(r))) {
-#pragma clang diagnostic pop
-        
-		NSMutableDictionary *tmpDict = [NSMutableDictionary dictionary];
-		
-		for (i = 0; (NULL != (key = asl_key(m, i))); i++) {
-			NSString *keyString = [NSString stringWithUTF8String:(char *)key];
-			
-			val = asl_get(m, key);
-			
-			NSString *string = [NSString stringWithUTF8String:val];
-			[tmpDict setObject:string forKey:keyString];
-		}
-		
-		NSString *message = [tmpDict objectForKey:@"Message"];
-		if (message)
-		[logs addObject:message];
-		
-	}
-    
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    if (asl_free != NULL)
-        asl_free(r);
-    else
-        aslresponse_free(r);
-#pragma clang diagnostic pop
-    
-	return logs;
++ (void)setUserDefaultsKey:(NSString *)userDefaultsKey {
+    UA__userDefaultsKey = userDefaultsKey;
 }
-	
-+ (void)getApplicationLog:(void (^)(NSArray *logs))onComplete {
-	dispatch_queue_t backgroundQueue = dispatch_queue_create("com.urbanapps.ualogger", 0);
-	dispatch_async(backgroundQueue, ^{
-		NSArray *logs = [UALogger getConsoleLogEntriesForBundleName:[self bundleName]];
-		onComplete(logs);
-	});
+
+#pragma mark - Log array
+
++ (NSMutableArray *) logArray {
+    static NSMutableArray *logArray = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSString *logArrayFilepath = [self logArrayFilepath];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:logArrayFilepath]) {
+            logArray = [[NSMutableArray alloc] initWithContentsOfFile:logArrayFilepath];
+        }
+        else {
+            logArray = [NSMutableArray array];
+        }
+    });
+    return logArray;
 }
-	
-+ (NSString *)applicationLog {
-	NSArray *logs = [UALogger getConsoleLogEntriesForBundleName:[self bundleName]];
-	return [logs componentsJoinedByString:@"\n"];
+
++ (BOOL) saveLogArray {
+    NSMutableArray *logArray = [self logArray];
+    NSString *logArrayFilepath = [self logArrayFilepath];
+    return [logArray writeToFile:logArrayFilepath atomically:YES];
+}
+
++ (NSString *) logArrayFilepath {
+    NSArray *folders = [[NSFileManager defaultManager] URLsForDirectory:NSLibraryDirectory inDomains:NSUserDomainMask];
+    NSURL *libraryDir = [folders objectAtIndex:0];
+    return [libraryDir.path stringByAppendingPathComponent:@"UALogger_log.txt"];
+}
+
++ (NSString *) logArrayAsString {
+    NSMutableArray *logArray = [self logArray];
+    return [logArray componentsJoinedByString:@"\n\n"];
 }
 	
 	

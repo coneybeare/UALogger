@@ -29,7 +29,7 @@ The console log that `NSLog` writes to can be read by any app, or anyone who kno
 
 ##### Give Better Support
 
-UALogger lets you get all of the logs written by your app to the system log. In our flagship app [Ambiance](http://ambianceapp.com), we use this to help debug tough customer issues. If a customer contacts us with an issue that we can't figure out, we ask them to turn on logging for Ambiance via a switch in the App settings, try to reproduce the problem, then send us the log via an in-app button.
+UALogger lets you get all of the logs written by your app. In our flagship app [Ambiance](http://ambianceapp.com), we use this to help debug tough customer issues. If a customer contacts us with an issue that we can't figure out, we ask them to turn on logging for Ambiance via a switch in the App settings, try to reproduce the problem, then send us the log via an in-app button.
 
 ##### Logging Severity Levels
 
@@ -212,26 +212,21 @@ After setting the `minimumSeverity`, any calls made to the non-`S` functions wil
 
 #### Recent Console Log Collecting
 
-One of the more useful features of `UALogger` is to grab the recent log entries from the console. To do this, simply call:
+One of the more useful features of `UALogger` is to grab the recent log entries. To do this, simply call:
 
-    [UALogger applicationLog];
+    [UALogger logArrayAsString];
 
 It can be useful to automatically append to support emails that originate from within your app.
 
-    NSString *log = [UALogger applicationLog];
+    NSString *log = [UALogger logArrayAsString];
     NSData *data = [log dataUsingEncoding:NSUTF8StringEncoding];
     [mailComposeViewController addAttachmentData:data mimeType:@"text/plain" fileName:@"ApplicationLog.txt"];
 
-The `applicationLog` method is synchronous and can take while, so there is also an asynchronous block based method with an onComplete callback:
+To keep your record of logs continuous through crashes and force quits, call the following from AppDelegate.m in `-applicationWillTerminate:`
 
-    [UALogger getApplicationLog:^(NSArray *logs){
-        for (NSString *log in logs) {
-            // Do something awesome"
-        }
-    }];
+    [UALogger saveLogArray];
 
-Remember that it only finds entries that were written to the console log, so if you don't have logging enabled, it will not return any lines. It is able to check the entire console log, but is not able to look at previous logs once the file's have been turned over. For normal usage you can usually grab a day or so of log entries.
-
+**Important:** Remember that the log array will only contain entries that were written when logging was enabled, so if you don't have logging enabled, it will not contain anything.
 
 ## Example Project
 Check out the example project to see how to use UALogger, how to setup a toggle switch to turn on/off logging in the wild, and how to attach the application log to an email.
