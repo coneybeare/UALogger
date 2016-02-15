@@ -97,11 +97,9 @@ static NSString * const UALogger_LoggingEnabled = @"UALogger_LoggingEnabled";	//
 + (void)logWithVerbosity:(UALoggerVerbosity)verbosity			// Logs a preset format based on the vspecified verbosity, and variables for the format.
 				severity:(UALoggerSeverity)severity
 			  formatArgs:(NSArray *)args;
-	
-+ (NSString *)bundleName;										// Default is CFBundleName
-+ (void)setBundleName:(NSString *)bundleName;
-+ (void)getApplicationLog:(void (^)(NSArray *logs))onComplete;	// Gets the recent log entries written to the console on a background thread, then calls the completion block
-+ (NSString *)applicationLog;									// Gets the recent log entries written to the console, may take a long time.
-	
-	
-	@end
+
++ (NSMutableArray *) logArray;									// gets singleton instance of logArray - from disk, or new
++ (BOOL) saveLogArray;											// use inside applicationWillTerminate: for continuous logging
++ (NSString *) logArrayAsString;								// convenience method / migration from -applicationLog
+
+@end
